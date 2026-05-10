@@ -378,8 +378,207 @@ async def check_coinglass(session: aiohttp.ClientSession, bot: Bot):
 
 
 # ═══════════════════════════════════════════════
-#  أوامر التحكم
+#  5. KUCOIN — Volume Spike
 # ═══════════════════════════════════════════════
+kucoin_volumes: dict = {}
+
+async def check_kucoin(session, bot):
+    try:
+        async with session.get("https://api.kucoin.com/api/v1/market/allTickers", timeout=15) as r:
+            data = await r.json()
+        tickers = data.get("data", {}).get("ticker", [])
+        for t in tickers:
+            sym = t.get("symbol", "")
+            if not sym.endswith("-USDT"):
+                continue
+            vol_now = float(t.get("volValue", 0))
+            change  = float(t.get("changeRate", 0)) * 100
+            price   = float(t.get("last", 0))
+            prev = kucoin_volumes.get(sym)
+            kucoin_volumes[sym] = vol_now
+            if not prev or prev == 0:
+                continue
+            ratio = vol_now / prev
+            if ratio < VOLUME_SPIKE_MULTIPLIER or abs(change) < MIN_PRICE_CHANGE:
+                continue
+            if is_on_cooldown(f"kucoin_{sym}"):
+                continue
+            direction = "\u0635\u0639\u0648\u062f" if change > 0 else "\u0647\u0628\u0648\u0637"
+            emoji = "\U0001f680" if change > 0 else "\U0001f4c9"
+            clean = sym.replace("-USDT", "")
+            sig = classify_signal("binance", clean, vol_now, direction)
+            parts = [
+                f"{emoji} *Volume Spike \u0639\u0644\u0649 KuCoin \u2014 {sig['label']}*",
+                "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501",
+                f"\U0001f7e1 \u0627\u0644\u0645\u0646\u0635\u0629:     `KuCoin`",
+                f"\U0001fab9 \u0627\u0644\u0639\u0645\u0644\u0629:     `{clean}`",
+                f"\U0001f4b2 \u0627\u0644\u0633\u0639\u0631:      `${price:,.4f}`",
+                f"\U0001f4c8 \u0627\u0644\u062a\u063a\u064a\u0631:     `{change:+.2f}%`",
+                f"\U0001f4ca \u0627\u0631\u062a\u0641\u0627\u0639 \u062d\u062c\u0645: `{ratio:.1f}x`",
+                f"\U0001f4b0 \u0627\u0644\u062d\u062c\u0645:      `${vol_now:,.0f}`",
+                f"\U0001f550 `{utcnow().strftime('%H:%M UTC')}`",
+            ]
+            await send_signal(bot, "\n".join(parts), {
+                "symbol": clean, "direction": direction,
+                "usd": vol_now, "source": "KuCoin", "source_key": "binance"
+            })
+    except Exception as e:
+        log.error(f"KuCoin: {e}")
+
+
+# ═══════════════════════════════════════════════
+#  6. MEXC — Volume Spike
+# ═══════════════════════════════════════════════
+mexc_volumes: dict = {}
+
+async def check_mexc(session, bot):
+    try:
+        async with session.get("https://api.mexc.com/api/v3/ticker/24hr", timeout=15) as r:
+            tickers = await r.json()
+        if isinstance(tickers, dict):
+            tickers = [tickers]
+        for t in tickers:
+            if not isinstance(t, dict):
+                continue
+            sym = t.get("symbol", "")
+            if not sym.endswith("USDT"):
+                continue
+            vol_now = float(t.get("quoteVolume", 0))
+            change  = float(t.get("priceChangePercent", 0))
+            price   = float(t.get("lastPrice", 0))
+            prev = mexc_volumes.get(sym)
+            mexc_volumes[sym] = vol_now
+            if not prev or prev == 0:
+                continue
+            ratio = vol_now / prev
+            if ratio < VOLUME_SPIKE_MULTIPLIER or abs(change) < MIN_PRICE_CHANGE:
+                continue
+            if is_on_cooldown(f"mexc_{sym}"):
+                continue
+            direction = "\u0635\u0639\u0648\u062f" if change > 0 else "\u0647\u0628\u0648\u0637"
+            emoji = "\U0001f680" if change > 0 else "\U0001f4c9"
+            clean = sym.replace("USDT", "")
+            sig = classify_signal("binance", clean, vol_now, direction)
+            parts = [
+                f"{emoji} *Volume Spike \u0639\u0644\u0649 MEXC \u2014 {sig['label']}*",
+                "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501",
+                f"\U0001f535 \u0627\u0644\u0645\u0646\u0635\u0629:     `MEXC`",
+                f"\U0001fab9 \u0627\u0644\u0639\u0645\u0644\u0629:     `{clean}`",
+                f"\U0001f4b2 \u0627\u0644\u0633\u0639\u0631:      `${price:,.4f}`",
+                f"\U0001f4c8 \u0627\u0644\u062a\u063a\u064a\u0631:     `{change:+.2f}%`",
+                f"\U0001f4ca \u0627\u0631\u062a\u0641\u0627\u0639 \u062d\u062c\u0645: `{ratio:.1f}x`",
+                f"\U0001f4b0 \u0627\u0644\u062d\u062c\u0645:      `${vol_now:,.0f}`",
+                f"\U0001f550 `{utcnow().strftime('%H:%M UTC')}`",
+            ]
+            await send_signal(bot, "\n".join(parts), {
+                "symbol": clean, "direction": direction,
+                "usd": vol_now, "source": "MEXC", "source_key": "binance"
+            })
+    except Exception as e:
+        log.error(f"MEXC: {e}")
+
+
+# ═══════════════════════════════════════════════
+#  7. SOLANA On-Chain
+# ═══════════════════════════════════════════════
+SOL_EXCHANGE_WALLETS = {
+    "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM": "Binance SOL",
+    "5tzFkiKscXHK5ZXCGbGuykoa7GBW8hxrCQLFDZFXi3ij": "Coinbase SOL",
+}
+
+async def check_solana(session, bot):
+    for addr, name in SOL_EXCHANGE_WALLETS.items():
+        try:
+            async with session.get(
+                "https://public-api.solscan.io/account/transactions",
+                params={"account": addr, "limit": 5},
+                headers={"accept": "application/json"},
+                timeout=10
+            ) as r:
+                if r.status != 200:
+                    continue
+                txs = await r.json()
+            for tx in (txs if isinstance(txs, list) else []):
+                sig_id = tx.get("txHash", tx.get("signature", ""))
+                if sig_id in sent_ids:
+                    continue
+                sol_amt = abs(tx.get("lamport", 0)) / 1e9
+                if sol_amt < 1000:
+                    continue
+                sent_ids.add(sig_id)
+                usd_val = sol_amt * 150
+                if is_on_cooldown(f"sol_{addr}"):
+                    continue
+                parts = [
+                    "\U0001f7e3 *\u062a\u062d\u0631\u0643 On-Chain \u2014 Solana!*",
+                    "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501",
+                    f"\U0001f3e6 \u0627\u0644\u0645\u062d\u0641\u0638\u0629: `{name}`",
+                    f"\U0001f4b0 \u0627\u0644\u0643\u0645\u064a\u0629:  `{sol_amt:,.0f} SOL`",
+                    f"\U0001f4b5 \u0627\u0644\u0642\u064a\u0645\u0629:  `~${usd_val:,.0f}`",
+                    f"\U0001f511 `{sig_id[:20]}...`",
+                    f"\U0001f550 `{utcnow().strftime('%H:%M UTC')}`",
+                ]
+                await send_signal(bot, "\n".join(parts), {
+                    "symbol": "SOL", "direction": "\u062a\u062d\u0648\u064a\u0644",
+                    "usd": usd_val, "source": "Solana On-Chain", "source_key": "etherscan"
+                })
+        except Exception as e:
+            log.error(f"Solana [{name}]: {e}")
+
+
+# ═══════════════════════════════════════════════
+#  8. BASE On-Chain
+# ═══════════════════════════════════════════════
+BASE_EXCHANGE_WALLETS = {
+    "0x3304e22DDaa22bCdC5fCa2269b418046aE7b566A": "Coinbase Base",
+}
+
+async def check_base(session, bot):
+    if not ETHERSCAN_KEY:
+        return
+    for addr, name in BASE_EXCHANGE_WALLETS.items():
+        try:
+            async with session.get(
+                "https://api.basescan.org/api",
+                params={"module": "account", "action": "txlist", "address": addr,
+                        "page": 1, "offset": 5, "sort": "desc", "apikey": ETHERSCAN_KEY},
+                timeout=10
+            ) as r:
+                data = await r.json()
+            for tx in data.get("result", []):
+                if not isinstance(tx, dict):
+                    continue
+                h = tx.get("hash", "")
+                if h in sent_ids:
+                    continue
+                val = int(tx.get("value", 0)) / 1e18
+                if val < 100:
+                    continue
+                sent_ids.add(h)
+                is_in = tx.get("to", "").lower() == addr.lower()
+                direction = "\u0628\u064a\u0639 \u0645\u062d\u062a\u0645\u0644" if is_in else "\u062a\u0631\u0627\u0643\u0645 \u0645\u062d\u062a\u0645\u0644"
+                arrow = "\U0001f4e5" if is_in else "\U0001f4e4"
+                if is_on_cooldown(f"base_{addr}_{is_in}"):
+                    continue
+                label = "\u0648\u0627\u0631\u062f \u0625\u0644\u0649" if is_in else "\u0635\u0627\u062f\u0631 \u0645\u0646"
+                parts = [
+                    "\U0001f535 *\u062a\u062d\u0631\u0643 On-Chain \u2014 Base!*",
+                    "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501",
+                    f"\U0001f3e6 {arrow} {label}: `{name}`",
+                    f"\U0001f4b0 \u0627\u0644\u0643\u0645\u064a\u0629:  `{val:,.2f} ETH`",
+                    f"\U0001f4ca \u0627\u0644\u0625\u0634\u0627\u0631\u0629: *{direction}*",
+                    f"\U0001f511 `{h[:20]}...`",
+                    f"\U0001f550 `{utcnow().strftime('%H:%M UTC')}`",
+                ]
+                await send_signal(bot, "\n".join(parts), {
+                    "symbol": "ETH", "direction": direction,
+                    "usd": val * 2500, "source": "Base On-Chain", "source_key": "etherscan"
+                })
+        except Exception as e:
+            log.error(f"Base [{name}]: {e}")
+
+
+
 async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     keyboard = InlineKeyboardMarkup([
         [InlineKeyboardButton("📊 الإشارات اليوم", callback_data="today"),
@@ -634,6 +833,10 @@ async def scan_loop(bot: Bot):
                     check_binance_volume(session, bot),
                     check_etherscan(session, bot),
                     check_coinglass(session, bot),
+                    check_kucoin(session, bot),
+                    check_mexc(session, bot),
+                    check_solana(session, bot),
+                    check_base(session, bot),
                 )
                 await check_score_alerts(bot)
             await asyncio.sleep(CHECK_INTERVAL)
