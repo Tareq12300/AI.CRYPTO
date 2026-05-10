@@ -44,6 +44,67 @@ sent_ids: set = set()
 last_volumes: dict = {}
 cooldown_tracker: dict = {}
 
+# ─── نظام النقاط ─────────────────────────────────────────────
+# {symbol: {"score": int, "reasons": list, "last_update": datetime}}
+SCORES: dict = {}
+
+SCORE_WEIGHTS = {
+    # المصدر
+    "whale_alert":  3,
+    "etherscan":    3,
+    "binance":      2,
+    "coinglass":    2,
+    # الاتجاه
+    "تراكم":        3,
+    "تراكم محتمل":  2,
+    "تراكم عقود":   2,
+    "بيع محتمل":   -2,
+    "بيع":         -3,
+    "تصفية عقود":  -2,
+    "تحويل":        1,
+    "صعود":         2,
+    "هبوط":        -2,
+}
+
+def add_score(symbol: str, source: str, direction: str, usd: float, reason: str):
+    """أضف نقاط لعملة معينة"""
+    sym = symbol.replace("USDT","").upper()
+    if sym not in SCORES:
+        SCORES[sym] = {"score": 0, "reasons": [], "last_update": utcnow()}
+
+    pts = SCORE_WEIGHTS.get(source, 1) + SCORE_WEIGHTS.get(direction, 0)
+
+    # مكافأة على الحجم
+    if usd >= 10_000_000: pts += 2
+    elif usd >= 5_000_000: pts += 1
+
+    SCORES[sym]["score"] = max(-10, min(10, SCORES[sym]["score"] + pts))
+    SCORES[sym]["last_update"] = utcnow()
+    SCORES[sym]["reasons"].append(f"{reason} ({'+' if pts>0 else ''}{pts}pts)")
+    # نحتفظ بآخر 5 أسباب فقط
+    SCORES[sym]["reasons"] = SCORES[sym]["reasons"][-5:]
+
+def get_top_scores(n: int = 5) -> list:
+    """أعلى العملات نقاطاً (bullish)"""
+    # نصفّر النقاط القديمة (+6 ساعات)
+    now = utcnow()
+    for sym in list(SCORES.keys()):
+        if (now - SCORES[sym]["last_update"]).total_seconds() > 21600:
+            SCORES[sym]["score"] = max(0, SCORES[sym]["score"] - 1)
+    # نرجع الأعلى
+    ranked = sorted(SCORES.items(), key=lambda x: x[1]["score"], reverse=True)
+    return [(sym, data) for sym, data in ranked if data["score"] > 0][:n]
+
+def score_bar(score: int) -> str:
+    """شريط مرئي للنقاط من -10 إلى +10"""
+    filled = max(0, score)
+    empty  = max(0, 10 - filled)
+    if score >= 7:   color = "🟢"
+    elif score >= 4: color = "🟡"
+    elif score >= 1: color = "🔵"
+    else:            color = "🔴"
+    return color + "█" * filled + "░" * empty + f" {score}/10"
+
 def is_on_cooldown(key: str) -> bool:
     last = cooldown_tracker.get(key)
     if last and datetime.now(timezone.utc) - last < timedelta(hours=COOLDOWN_HOURS):
@@ -96,6 +157,14 @@ async def send_signal(bot: Bot, text: str, signal_data: dict):
             "time": utcnow().strftime("%H:%M"),
             "text_preview": text[:60],
         })
+        # ─── تحديث نظام النقاط ───
+        add_score(
+            symbol    = signal_data.get("symbol", "?"),
+            source    = signal_data.get("source_key", "binance"),
+            direction = signal_data.get("direction", ""),
+            usd       = signal_data.get("usd", 0),
+            reason    = signal_data.get("source", "?"),
+        )
         # نحتفظ بآخر 50 إشارة فقط
         if len(STATE["signals_today"]) > 50:
             STATE["signals_today"] = STATE["signals_today"][-50:]
@@ -160,7 +229,7 @@ async def check_whale_alert(session: aiohttp.ClientSession, bot: Bot):
                 f"🔗 `{tx_hash}...`\n"
                 f"🕐 `{utcnow().strftime('%H:%M UTC')}`"
             )
-            await send_signal(bot, msg, {"symbol": symbol, "direction": direction, "usd": usd, "source": "Whale Alert"})
+            await send_signal(bot, msg, {"symbol": symbol, "direction": direction, "usd": usd, "source": "Whale Alert", "source_key": "whale_alert"})
     except Exception as e:
         log.error(f"Whale Alert: {e}")
 
@@ -211,7 +280,7 @@ async def check_binance_volume(session: aiohttp.ClientSession, bot: Bot):
                 f"📉 النطاق:     `${low:,.4f} — ${high:,.4f}`\n"
                 f"🕐 `{utcnow().strftime('%H:%M UTC')}`"
             )
-            await send_signal(bot, msg, {"symbol": sym, "direction": direction, "usd": vol_now, "source": "Binance"})
+            await send_signal(bot, msg, {"symbol": sym, "direction": direction, "usd": vol_now, "source": "Binance", "source_key": "binance"})
     except Exception as e:
         log.error(f"Binance: {e}")
 
@@ -263,7 +332,7 @@ async def check_etherscan(session: aiohttp.ClientSession, bot: Bot):
                     f"🔑 `{h[:20]}...`\n"
                     f"🕐 `{utcnow().strftime('%H:%M UTC')}`"
                 )
-                await send_signal(bot, msg, {"symbol": "ETH", "direction": direction, "usd": val*2500, "source": "Etherscan"})
+                await send_signal(bot, msg, {"symbol": "ETH", "direction": direction, "usd": val*2500, "source": "Etherscan", "source_key": "etherscan"})
         except Exception as e:
             log.error(f"Etherscan [{name}]: {e}")
 
@@ -303,7 +372,7 @@ async def check_coinglass(session: aiohttp.ClientSession, bot: Bot):
                 f"💰 OI الكلي: `${oi_usd:,.0f}`\n"
                 f"🕐 `{utcnow().strftime('%H:%M UTC')}`"
             )
-            await send_signal(bot, msg, {"symbol": symbol, "direction": direction, "usd": oi_usd, "source": "CoinGlass"})
+            await send_signal(bot, msg, {"symbol": symbol, "direction": direction, "usd": oi_usd, "source": "CoinGlass", "source_key": "coinglass"})
     except Exception as e:
         log.error(f"CoinGlass: {e}")
 
@@ -318,6 +387,7 @@ async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("⏸ إيقاف مؤقت", callback_data="pause"),
          InlineKeyboardButton("▶️ تشغيل", callback_data="resume")],
         [InlineKeyboardButton("📋 تقرير يومي", callback_data="report")],
+        [InlineKeyboardButton("🏆 أقوى العملات (نقاط)", callback_data="scores")],
     ])
     await update.message.reply_text(
         "🤖 *Smart Money Bot*\n"
@@ -335,6 +405,42 @@ async def cmd_today(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 async def cmd_report(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await send_report(update.message.reply_text)
+
+async def cmd_scores(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    await send_scores(update.message.reply_text)
+
+async def cmd_top(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    await send_scores(update.message.reply_text)
+
+async def send_scores(reply_fn):
+    top = get_top_scores(8)
+    if not top:
+        no_data = (
+            "📊 *نظام النقاط*\n"
+            "━━━━━━━━━━━━━━━━━━━\n"
+            "لا توجد بيانات كافية بعد.\n"
+            "انتظر حتى تتراكم الإشارات 🕐"
+        )
+        await reply_fn(no_data, parse_mode=ParseMode.MARKDOWN)
+        return
+
+    lines_out = []
+    medals = ["🥇","🥈","🥉","4️⃣","5️⃣","6️⃣","7️⃣","8️⃣"]
+    for i, (sym, data) in enumerate(top):
+        bar     = score_bar(data["score"])
+        reasons = " | ".join(data["reasons"][-2:])
+        entry = medals[i] + " *" + sym + "*\n`" + bar + "`\n_" + reasons + "_\n"
+        lines_out.append(entry)
+
+    header = (
+        "🏆 *أقوى العملات الآن — نظام النقاط*\n"
+        "━━━━━━━━━━━━━━━━━━━\n"
+        "النقاط تُجمع من كل المصادر تلقائياً\n\n"
+    )
+    ts     = utcnow().strftime('%H:%M UTC')
+    footer = "\n🕐 `" + ts + "`\n_⚠️ ليس نصيحة مالية_"
+    msg = header + "\n".join(lines_out) + footer
+    await reply_fn(msg, parse_mode=ParseMode.MARKDOWN)
 
 async def cmd_pause(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     STATE["running"] = False
@@ -379,6 +485,8 @@ async def btn_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     elif data == "resume":
         STATE["running"] = True
         await q.message.reply_text("▶️ البوت يعمل!")
+    elif data == "scores":
+        await send_scores(q.message.reply_text)
     elif data == "dismiss":
         await q.message.edit_reply_markup(reply_markup=None)
     elif data.startswith("detail_"):
@@ -489,6 +597,32 @@ async def daily_report_job(bot: Bot):
 # ═══════════════════════════════════════════════
 #  حلقة الفحص الرئيسية
 # ═══════════════════════════════════════════════
+ALERTED_SCORES: set = set()   # عملات أُرسل تنبيه نقاطها
+
+async def check_score_alerts(bot: Bot):
+    """تنبيه تلقائي حين عملة تتجاوز 7 نقاط"""
+    top = get_top_scores(10)
+    for sym, data in top:
+        score = data["score"]
+        key   = f"{sym}_{score // 2}"   # تنبّه كل مجموعتين
+        if score >= 7 and key not in ALERTED_SCORES:
+            ALERTED_SCORES.add(key)
+            bar     = score_bar(score)
+            reasons = "\n".join([f"  • {r}" for r in data["reasons"]])
+            msg = (
+                f"🚨 *تنبيه نقاط عالية!*\n"
+                f"━━━━━━━━━━━━━━━━━━━\n"
+                f"🪙 العملة: *{sym}*\n"
+                f"`{bar}`\n\n"
+                f"📋 *الأسباب:*\n{reasons}\n\n"
+                f"⚠️ _تجمّعت إشارات متعددة — راقب هذه العملة_\n"
+                f"🕐 `{utcnow().strftime('%H:%M UTC')}`"
+            )
+            try:
+                await bot.send_message(chat_id=CHAT_ID, text=msg, parse_mode=ParseMode.MARKDOWN)
+            except Exception as e:
+                log.error(f"score_alert: {e}")
+
 async def scan_loop(bot: Bot):
     async with aiohttp.ClientSession() as session:
         while True:
@@ -501,6 +635,7 @@ async def scan_loop(bot: Bot):
                     check_etherscan(session, bot),
                     check_coinglass(session, bot),
                 )
+                await check_score_alerts(bot)
             await asyncio.sleep(CHECK_INTERVAL)
 
 
@@ -518,6 +653,8 @@ async def main():
     app.add_handler(CommandHandler("pause",  cmd_pause))
     app.add_handler(CommandHandler("resume", cmd_resume))
     app.add_handler(CommandHandler("help",   cmd_help))
+    app.add_handler(CommandHandler("scores", cmd_scores))
+    app.add_handler(CommandHandler("top",    cmd_top))
     app.add_handler(CallbackQueryHandler(btn_handler))
 
     await app.initialize()
@@ -526,22 +663,10 @@ async def main():
 
     bot = app.bot
 
-    # رسالة ترحيب
+    # إشعار بسيط بدون قائمة الأوامر
     await bot.send_message(
         chat_id=CHAT_ID,
-        text=(
-            "🤖 *Smart Money Bot — النسخة الاحترافية*\n"
-            "━━━━━━━━━━━━━━━━━━━\n"
-            "✅ يعمل الآن بكامل الميزات\n\n"
-            "📌 *الأوامر:*\n"
-            "/start — القائمة الرئيسية\n"
-            "/status — الحالة والإحصائيات\n"
-            "/today — إشارات اليوم\n"
-            "/report — تقرير مفصل\n"
-            "/pause — إيقاف مؤقت\n"
-            "/resume — تشغيل\n"
-            "/help — المساعدة"
-        ),
+        text="🤖 *Smart Money Bot* — يعمل الآن ✅",
         parse_mode=ParseMode.MARKDOWN,
     )
 
