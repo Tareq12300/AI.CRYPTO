@@ -104,7 +104,11 @@ async def check_binance_volume(session: aiohttp.ClientSession):
         async with session.get("https://api.binance.com/api/v3/ticker/24hr", timeout=15) as r:
             tickers = await r.json()
 
+        if isinstance(tickers, dict):
+            tickers = [tickers]
         for t in tickers:
+            if not isinstance(t, dict):
+                continue
             sym = t.get("symbol", "")
             if not sym.endswith("USDT"):
                 continue
