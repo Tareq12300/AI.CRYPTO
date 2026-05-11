@@ -4,32 +4,32 @@
 import os
 
 # ─── تليغرام ───────────────────────────────────
-TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "")   # من @BotFather
-CHAT_ID        = os.getenv("CHAT_ID", "")           # معرفك الشخصي
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "")
+CHAT_ID        = os.getenv("CHAT_ID", "")
 
-# ─── مصادر البيانات (اتركها فارغة لو ما عندك) ──
-WHALE_ALERT_KEY = os.getenv("WHALE_ALERT_KEY", "")  # whale-alert.io
-ETHERSCAN_KEY   = os.getenv("ETHERSCAN_KEY", "")    # etherscan.io/apis
-COINGLASS_KEY   = os.getenv("COINGLASS_KEY", "")    # coinglass.com/pricing
+# ─── مصادر البيانات ──────────────────────────────
+WHALE_ALERT_KEY = os.getenv("WHALE_ALERT_KEY", "")
+ETHERSCAN_KEY   = os.getenv("ETHERSCAN_KEY", "")
+COINGLASS_KEY   = os.getenv("COINGLASS_KEY", "")
 
-# ─── Binance (مجاني بدون مفتاح) ────────────────
+# ─── Binance/KuCoin/MEXC (مجاني بدون مفتاح) ─────
 BINANCE_ENABLED = True
 
-# ─── إعدادات الإشارات ───────────────────────────
-CHECK_INTERVAL       = 60 * 5    # فحص كل 5 دقائق (ثواني)
+# ─── إعدادات الإشارات (مخففة لتشتغل) ─────────────
+CHECK_INTERVAL          = 60 * 3    # فحص كل 3 دقائق
 
-# 🐋 Whale Alert — إشارة قوية فقط
-MIN_WHALE_USD        = 5_000_000  # حركة أكبر من 5 مليون دولار
+# 🐋 Whale Alert
+MIN_WHALE_USD           = 1_000_000  # مليون دولار (كان 5M)
 
-# ⚡ Binance — إشارة قوية فقط
-VOLUME_SPIKE_MULTIPLIER = 5.0    # حجم الآن = 5x المعدل الطبيعي
-MIN_PRICE_CHANGE        = 5.0    # تحرك سعر +5% على الأقل
+# ⚡ Volume Spike — البورصات
+VOLUME_SPIKE_MULTIPLIER = 1.5        # 1.5x كافي (كان 5x — كان صعب جداً)
+MIN_PRICE_CHANGE        = 3.0        # 3% (كان 5%)
 
-# 🔗 Etherscan — إشارة قوية فقط
-MIN_ETH_TRANSFER        = 500    # أقل حد = 500 ETH (~مليون دولار+)
+# 🔗 Etherscan / Base
+MIN_ETH_TRANSFER        = 50         # 50 ETH (كان 500)
 
-# 📊 CoinGlass — إشارة قوية فقط
-MIN_OI_CHANGE_PCT       = 15.0   # تغير Open Interest أكبر من 15%
+# 📊 CoinGlass
+MIN_OI_CHANGE_PCT       = 5.0        # 5% (كان 15%)
 
-# 🔕 منع التكرار — لا يُرسل نفس الإشارة مرتين خلال ساعات
-COOLDOWN_HOURS          = 4      # نفس العملة لا تتكرر قبل 4 ساعات
+# 🔕 منع التكرار
+COOLDOWN_HOURS          = 2          # ساعتان (كان 4)
