@@ -396,9 +396,9 @@ async def check_kucoin(session, bot):
             sym = t.get("symbol", "")
             if not sym.endswith("-USDT"):
                 continue
-            vol_now = float(t.get("volValue", 0))
-            change  = float(t.get("changeRate", 0)) * 100
-            price   = float(t.get("last", 0))
+            vol_now = float(t.get("volValue") or 0)
+            change  = float(t.get("changeRate") or 0) * 100
+            price   = float(t.get("last") or 0)
             prev = kucoin_volumes.get(sym)
             kucoin_volumes[sym] = vol_now
             if not prev or prev == 0:
