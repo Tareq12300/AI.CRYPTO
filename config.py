@@ -1,5 +1,5 @@
 """
-إعدادات البوت — اعدّل هنا فقط
+إعدادات البوت
 """
 import os
 
@@ -11,25 +11,23 @@ CHAT_ID        = os.getenv("CHAT_ID", "")
 WHALE_ALERT_KEY = os.getenv("WHALE_ALERT_KEY", "")
 ETHERSCAN_KEY   = os.getenv("ETHERSCAN_KEY", "")
 COINGLASS_KEY   = os.getenv("COINGLASS_KEY", "")
-
-# ─── Binance/KuCoin/MEXC (مجاني بدون مفتاح) ─────
 BINANCE_ENABLED = True
 
-# ─── إعدادات الإشارات (مخففة لتشتغل) ─────────────
-CHECK_INTERVAL          = 60 * 3    # فحص كل 3 دقائق
+# ─── إعدادات الإشارات ─────────────────────────────
+CHECK_INTERVAL          = 60 * 5   # كل 5 دقائق
 
 # 🐋 Whale Alert
-MIN_WHALE_USD           = 1_000_000  # مليون دولار (كان 5M)
+MIN_WHALE_USD           = 1_000_000  # مليون دولار+
 
-# ⚡ Volume Spike — البورصات
-VOLUME_SPIKE_MULTIPLIER = 1.5        # 1.5x كافي (كان 5x — كان صعب جداً)
-MIN_PRICE_CHANGE        = 3.0        # 3% (كان 5%)
+# ⚡ Volume Spike
+VOLUME_SPIKE_MULTIPLIER = 2.0        # ضعفان على الأقل
+MIN_PRICE_CHANGE        = 4.0        # 4% تحرك سعر
 
 # 🔗 Etherscan / Base
-MIN_ETH_TRANSFER        = 50         # 50 ETH (كان 500)
+MIN_ETH_TRANSFER        = 100        # 100 ETH+
 
 # 📊 CoinGlass
-MIN_OI_CHANGE_PCT       = 5.0        # 5% (كان 15%)
+MIN_OI_CHANGE_PCT       = 8.0        # 8%+
 
-# 🔕 منع التكرار
-COOLDOWN_HOURS          = 2          # ساعتان (كان 4)
+# 🔕 Cooldown
+COOLDOWN_HOURS          = 2
