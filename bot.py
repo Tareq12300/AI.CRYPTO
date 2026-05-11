@@ -264,9 +264,9 @@ async def check_binance_volume(session: aiohttp.ClientSession, bot: Bot):
 
             ratio = vol_now / prev if prev > 0 else 1
             # شرط مرن: إما نسبة ارتفاع أو حجم ضخم مع تحرك سعر
-            big_volume  = vol_now > 50_000_000 and abs(change) >= MIN_PRICE_CHANGE
-            spike_ratio = ratio >= VOLUME_SPIKE_MULTIPLIER and abs(change) >= MIN_PRICE_CHANGE
-            if not big_volume and not spike_ratio:
+            if ratio < VOLUME_SPIKE_MULTIPLIER or abs(change) < MIN_PRICE_CHANGE:
+                continue
+            if vol_now < 500_000:  # تجاهل حجم أقل من $500K
                 continue
             if is_on_cooldown(f"binance_{sym}"): continue
 
@@ -404,9 +404,9 @@ async def check_kucoin(session, bot):
             if not prev or prev == 0:
                 continue
             ratio = vol_now / prev if prev > 0 else 1
-            big_volume  = vol_now > 10_000_000 and abs(change) >= MIN_PRICE_CHANGE
-            spike_ratio = ratio >= VOLUME_SPIKE_MULTIPLIER and abs(change) >= MIN_PRICE_CHANGE
-            if not big_volume and not spike_ratio:
+            if ratio < VOLUME_SPIKE_MULTIPLIER or abs(change) < MIN_PRICE_CHANGE:
+                continue
+            if vol_now < 100_000:  # تجاهل حجم أقل من $100K
                 continue
             if is_on_cooldown(f"kucoin_{sym}"):
                 continue
@@ -458,9 +458,9 @@ async def check_mexc(session, bot):
             if not prev or prev == 0:
                 continue
             ratio = vol_now / prev if prev > 0 else 1
-            big_volume  = vol_now > 10_000_000 and abs(change) >= MIN_PRICE_CHANGE
-            spike_ratio = ratio >= VOLUME_SPIKE_MULTIPLIER and abs(change) >= MIN_PRICE_CHANGE
-            if not big_volume and not spike_ratio:
+            if ratio < VOLUME_SPIKE_MULTIPLIER or abs(change) < MIN_PRICE_CHANGE:
+                continue
+            if vol_now < 100_000:  # تجاهل حجم أقل من $100K
                 continue
             if is_on_cooldown(f"mexc_{sym}"):
                 continue
