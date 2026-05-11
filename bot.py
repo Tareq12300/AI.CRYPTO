@@ -259,10 +259,15 @@ async def check_binance_volume(session: aiohttp.ClientSession, bot: Bot):
 
             prev = last_volumes.get(sym)
             last_volumes[sym] = vol_now
-            if not prev or prev == 0: continue
+            if not prev or prev == 0:
+                continue  # نحتاج دورة ثانية للمقارنة
 
-            ratio = vol_now / prev
-            if ratio < VOLUME_SPIKE_MULTIPLIER or abs(change) < MIN_PRICE_CHANGE: continue
+            ratio = vol_now / prev if prev > 0 else 1
+            # شرط مرن: إما نسبة ارتفاع أو حجم ضخم مع تحرك سعر
+            big_volume  = vol_now > 50_000_000 and abs(change) >= MIN_PRICE_CHANGE
+            spike_ratio = ratio >= VOLUME_SPIKE_MULTIPLIER and abs(change) >= MIN_PRICE_CHANGE
+            if not big_volume and not spike_ratio:
+                continue
             if is_on_cooldown(f"binance_{sym}"): continue
 
             direction = "صعود" if change > 0 else "هبوط"
@@ -398,8 +403,10 @@ async def check_kucoin(session, bot):
             kucoin_volumes[sym] = vol_now
             if not prev or prev == 0:
                 continue
-            ratio = vol_now / prev
-            if ratio < VOLUME_SPIKE_MULTIPLIER or abs(change) < MIN_PRICE_CHANGE:
+            ratio = vol_now / prev if prev > 0 else 1
+            big_volume  = vol_now > 10_000_000 and abs(change) >= MIN_PRICE_CHANGE
+            spike_ratio = ratio >= VOLUME_SPIKE_MULTIPLIER and abs(change) >= MIN_PRICE_CHANGE
+            if not big_volume and not spike_ratio:
                 continue
             if is_on_cooldown(f"kucoin_{sym}"):
                 continue
@@ -450,8 +457,10 @@ async def check_mexc(session, bot):
             mexc_volumes[sym] = vol_now
             if not prev or prev == 0:
                 continue
-            ratio = vol_now / prev
-            if ratio < VOLUME_SPIKE_MULTIPLIER or abs(change) < MIN_PRICE_CHANGE:
+            ratio = vol_now / prev if prev > 0 else 1
+            big_volume  = vol_now > 10_000_000 and abs(change) >= MIN_PRICE_CHANGE
+            spike_ratio = ratio >= VOLUME_SPIKE_MULTIPLIER and abs(change) >= MIN_PRICE_CHANGE
+            if not big_volume and not spike_ratio:
                 continue
             if is_on_cooldown(f"mexc_{sym}"):
                 continue
