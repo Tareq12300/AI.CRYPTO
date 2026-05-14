@@ -28,8 +28,6 @@ SYMBOL_MAP = {
     "RNDR": "RENDER"
 }
 
-EXCHANGES = ["binance", "okx", "bybit", "gate", "bitget"]
-
 
 async def send_telegram(text: str):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
@@ -47,24 +45,12 @@ def normalize_symbol(symbol: str) -> str:
     return SYMBOL_MAP.get(symbol, symbol)
 
 
-def tf_binance(tf):
-    return tf
-
-
 def tf_okx(tf):
     return {
         "1h": "1H",
         "4h": "4H",
         "1d": "1D",
     }.get(tf, "4H")
-
-
-def tf_bybit(tf):
-    return {
-        "1h": "60",
-        "4h": "240",
-        "1d": "D",
-    }.get(tf, "240")
 
 
 def tf_gate(tf):
@@ -75,51 +61,22 @@ def tf_gate(tf):
     }.get(tf, "4h")
 
 
-def tf_bitget(tf):
-    return {
-        "1h": "1H",
-        "4h": "4H",
-        "1d": "1D",
-    }.get(tf, "4H")
-
-
-async def fetch_binance(symbol):
-    s = normalize_symbol(symbol)
-    pair = f"{s}USDT"
-    url = "https://api.binance.com/api/v3/klines"
-    params = {"symbol": pair, "interval": tf_binance(TIMEFRAME), "limit": LIMIT}
-
-    async with httpx.AsyncClient() as http:
-        r = await http.get(url, params=params, timeout=20)
-
-    if r.status_code != 200:
-        return None
-
-    data = r.json()
-    candles = [
-        {
-            "open": float(k[1]),
-            "high": float(k[2]),
-            "low": float(k[3]),
-            "close": float(k[4]),
-            "volume": float(k[5]),
-        }
-        for k in data
-    ]
-
-    return {"exchange": "Binance", "pair": pair, "candles": candles}
-
-
 async def fetch_okx(symbol):
     s = normalize_symbol(symbol)
     pair = f"{s}-USDT"
+
     url = "https://www.okx.com/api/v5/market/candles"
-    params = {"instId": pair, "bar": tf_okx(TIMEFRAME), "limit": str(LIMIT)}
+    params = {
+        "instId": pair,
+        "bar": tf_okx(TIMEFRAME),
+        "limit": str(LIMIT),
+    }
 
     async with httpx.AsyncClient() as http:
         r = await http.get(url, params=params, timeout=20)
 
     if r.status_code != 200:
+        log.warning(f"OKX failed for {symbol}: {r.status_code}")
         return None
 
     data = r.json().get("data", [])
@@ -139,17 +96,21 @@ async def fetch_okx(symbol):
         for k in data
     ]
 
-    return {"exchange": "OKX", "pair": pair, "candles": candles}
+    return {
+        "exchange": "OKX",
+        "pair": pair,
+        "candles": candles,
+    }
 
 
-async def fetch_bybit(symbol):
+async def fetch_gate(symbol):
     s = normalize_symbol(symbol)
-    pair = f"{s}USDT"
-    url = "https://api.bybit.com/v5/market/kline"
+    pair = f"{s}_USDT"
+
+    url = "https://api.gateio.ws/api/v4/spot/candlesticks"
     params = {
-        "category": "spot",
-        "symbol": pair,
-        "interval": tf_bybit(TIMEFRAME),
+        "currency_pair": pair,
+        "interval": tf_gate(TIMEFRAME),
         "limit": LIMIT,
     }
 
@@ -157,38 +118,7 @@ async def fetch_bybit(symbol):
         r = await http.get(url, params=params, timeout=20)
 
     if r.status_code != 200:
-        return None
-
-    data = r.json().get("result", {}).get("list", [])
-    if not data:
-        return None
-
-    data = list(reversed(data))
-
-    candles = [
-        {
-            "open": float(k[1]),
-            "high": float(k[2]),
-            "low": float(k[3]),
-            "close": float(k[4]),
-            "volume": float(k[5]),
-        }
-        for k in data
-    ]
-
-    return {"exchange": "Bybit", "pair": pair, "candles": candles}
-
-
-async def fetch_gate(symbol):
-    s = normalize_symbol(symbol)
-    pair = f"{s}_USDT"
-    url = "https://api.gateio.ws/api/v4/spot/candlesticks"
-    params = {"currency_pair": pair, "interval": tf_gate(TIMEFRAME), "limit": LIMIT}
-
-    async with httpx.AsyncClient() as http:
-        r = await http.get(url, params=params, timeout=20)
-
-    if r.status_code != 200:
+        log.warning(f"Gate failed for {symbol}: {r.status_code}")
         return None
 
     data = r.json()
@@ -206,57 +136,22 @@ async def fetch_gate(symbol):
         for k in data
     ]
 
-    return {"exchange": "Gate", "pair": pair, "candles": candles}
-
-
-async def fetch_bitget(symbol):
-    s = normalize_symbol(symbol)
-    pair = f"{s}USDT"
-    url = "https://api.bitget.com/api/v2/spot/market/candles"
-    params = {
-        "symbol": pair,
-        "granularity": tf_bitget(TIMEFRAME),
-        "limit": str(LIMIT),
+    return {
+        "exchange": "Gate",
+        "pair": pair,
+        "candles": candles,
     }
-
-    async with httpx.AsyncClient() as http:
-        r = await http.get(url, params=params, timeout=20)
-
-    if r.status_code != 200:
-        return None
-
-    data = r.json().get("data", [])
-    if not data:
-        return None
-
-    data = list(reversed(data))
-
-    candles = [
-        {
-            "open": float(k[1]),
-            "high": float(k[2]),
-            "low": float(k[3]),
-            "close": float(k[4]),
-            "volume": float(k[5]),
-        }
-        for k in data
-    ]
-
-    return {"exchange": "Bitget", "pair": pair, "candles": candles}
 
 
 async def fetch_market_data(symbol):
     fetchers = [
-        fetch_binance,
         fetch_okx,
-        fetch_bybit,
         fetch_gate,
-        fetch_bitget,
     ]
 
     results = await asyncio.gather(
         *[f(symbol) for f in fetchers],
-        return_exceptions=True
+        return_exceptions=True,
     )
 
     clean = []
@@ -321,7 +216,7 @@ def analyze_exchange(symbol, item):
     rsi_ok = current_rsi is not None and 35 <= current_rsi <= 72
     momentum_ok = current_price > previous_price
 
-    # حماية قوية من المقاومات الوهمية
+    # حماية من المقاومات الوهمية مثل: السعر 1.9 والمقاومة 8.5
     if resistance > current_price * 1.25:
         return None
 
@@ -343,7 +238,6 @@ def choose_best_signal(signals):
     if not signals:
         return None
 
-    # الأفضلية للإشارة ذات أعلى فوليوم
     return sorted(signals, key=lambda x: x["volume_ratio"], reverse=True)[0]
 
 
@@ -364,7 +258,7 @@ async def run_analysis():
 
     await send_telegram(
         f"🔍 <b>بدأ تحليل {len(COINS)} عملة</b>\n"
-        f"🏦 المنصات: Binance / OKX / Bybit / Gate / Bitget\n"
+        f"🏦 المنصات: <b>OKX / Gate</b>\n"
         f"⏱ الفريم: <b>{TIMEFRAME}</b>\n"
         f"🕐 {now}\n"
         f"⭐ فقط الاختراقات المؤكدة ببيانات حقيقية"
@@ -375,6 +269,7 @@ async def run_analysis():
     for i, symbol in enumerate(COINS, start=1):
         try:
             log.info(f"[{i}/{len(COINS)}] تحليل {symbol}")
+
             signal = await analyze_symbol(symbol)
 
             if not signal:
@@ -417,7 +312,7 @@ async def main():
     await send_telegram(
         f"🚀 <b>بوت مراقبة العملات يعمل</b>\n\n"
         f"📊 عدد العملات: <b>{len(COINS)}</b>\n"
-        f"🏦 المنصات: <b>Binance / OKX / Bybit / Gate / Bitget</b>\n"
+        f"🏦 المنصات: <b>OKX / Gate</b>\n"
         f"⏱ الفريم: <b>{TIMEFRAME}</b>\n"
         f"🔁 كل <b>{INTERVAL_HOURS}</b> ساعة\n"
         f"🟢 إشارات شراء فقط ببيانات سوق حقيقية\n\n"
