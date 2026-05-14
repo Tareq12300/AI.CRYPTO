@@ -2,7 +2,7 @@ import os
 import asyncio
 import logging
 from datetime import datetime
-import anthropic
+
 import httpx
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
@@ -10,213 +10,417 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 log = logging.getLogger(__name__)
 
 TELEGRAM_TOKEN = os.environ["TELEGRAM_TOKEN"]
-CHAT_ID        = os.environ["CHAT_ID"]
-ANTHROPIC_KEY  = os.environ["ANTHROPIC_API_KEY"]
-INTERVAL_HOURS = int(os.environ.get("INTERVAL_HOURS", "4"))
-BATCH_SIZE     = int(os.environ.get("BATCH_SIZE", "10"))
-MODEL_NAME     = os.environ.get("MODEL_NAME", "claude-sonnet-4-6")
+CHAT_ID = os.environ["CHAT_ID"]
 
-# ─────────────────────────────────────────────────────────────────────────────
-# 500 عملة جادة — مستثنى: ميم كوين، ألعاب، قمار، أسواق توقعات
-# ─────────────────────────────────────────────────────────────────────────────
-ALL_COINS = [
-    # الكبار
+INTERVAL_HOURS = int(os.environ.get("INTERVAL_HOURS", "4"))
+TIMEFRAME = os.environ.get("TIMEFRAME", "4h")
+LIMIT = int(os.environ.get("LIMIT", "120"))
+
+COINS = [
     "BTC","ETH","BNB","SOL","XRP","ADA","AVAX","DOT","NEAR","ATOM",
-    "TRX","LTC","XMR","ETC","XLM","VET","EGLD","HBAR","FTM","KSM",
-    # Layer 1
-    "MINA","ZEC","DASH","DCR","ZIL","ONE","CELO","ZEN","RVN","ALGO",
-    "IOTA","XDC","HOLO","NKN","CTSI","IOTX","WAN","HIVE","STEEM","NULS",
-    "COTI","ASTR","GLMR","MOVR","REEF","CLV","TOMO","MTR","SKALE","CANTO",
-    "KLAY","EVMOS","NTRN","COREUM","AZERO","OASIS","EVER","LISK","ARK","DGB",
-    "SCRT","ROSE","SYS","CKB","LUNC","LUNA2","KAVA","THETA","QNT","XTZ",
-    "ICP","STX","FLOW","OSMO","VENOM","MASSA","DIONE","ALEPH","TRAC","CESS",
-    "SYNTROPY","HOPR","CUDOS","CHEQ","NYM","DVPN","SYLO","ORDI","HARMONY","VELAS",
-    "THUNDERCORE","FUSE","AURORA","EMERALD","ROOTSTOCK","ELASTOS","PIVX","ENERGI","WAX","WAXP",
-    # Layer 2 / Rollups
-    "ARB","OP","MATIC","IMX","ZK","STRK","MANTA","SCROLL","METIS","BOBA",
-    "LRC","STG","ZRO","HOP","ACROSS","SYN","MULTI","POND","STARGATE","TAIKO",
-    "ALT","TIA","SEI","DYM","SAGA","PORTAL","ZETA","LINEA","SONIC","HYPER",
-    "MOVE","BERA","MON","SUI","APT","INJ","BASE2","SCROLL2","NEON","LAYERZ",
-    # DeFi Core
-    "UNI","AAVE","MKR","CRV","COMP","SNX","YFI","SUSHI","BAL","CVX",
-    "1INCH","DYDX","GMX","PERP","GNS","LYRA","DOPEX","PREMIA","HEGIC","OPYN",
-    "PENDLE","ETHFI","EIGEN","ENA","LDO","RPL","SSV","RUNE","DEXE","HYPE",
-    "LISTA","WOO","DODO","KYBER","BANCOR","COW","GNO","SAFE","BLUR","NFTX",
-    "LOOKS","UFT","RAMP","ALPACA","BELT","CAKE","DDX","DERI","UMA","VOLT",
-    "UNCX","FLOOR","SUDO","SPELL","CREAM","IDLE","BOND","HARV","PICKLE","POLS",
-    "FRAX","FXS","LUSD","MIM","RAI","LQTY","TRIBE","FEI","ANGLE","MSTABLE",
-    "INDEX","DPI","MVI","DRIFT","LEVEL","VELA","PIKA","CAP","GAINS","KWENTA",
-    "MORPHO","EULER","SILO","RADIANT","GRANARY","NOTIONAL","EXACTLY","TERM","SPECTRA","PENDLE2",
-    "PSTAKE","STAFI","SWISE","METH","RETH","WBTC","RENBTC","CBBTC","TBTC","BTCB",
-    # Oracle / Data
-    "LINK","BAND","API3","DIA","SUPRA","TELLOR","PYTH","GRT","TRB","NMR",
-    "NEST","DOS","UMBRELLA","RAZOR","WITNET","FLUX2","CHRONICLE","DXFEED","BIRDEYE","STORK",
-    # AI / Compute / DePIN
-    "FET","AGIX","RNDR","WLD","TAO","AKT","OCEAN","GRASS","ATH","IO",
-    "PRIME","VIRTUAL","AIXBT","PAAL","ORAI","MATRIX","CTXC","AIOZ","DATA","RSS3",
-    "MASK","PHA","DESO","AUDIO","LPT","STORJ","AR","HNT","GEODNET","HONEY",
-    "SLEEPLESS","CARV","DEAI","SWARMS","ORBIT","FREYSA","ELIZA","GOAT","ALLORA","RITUALS",
-    "MORPHEUS","KOLIN","DAIN","DEPIN","BICO","ENS","SPACE","MYRIA","RENDER","AKASH",
-    # RWA
-    "ONDO","CFG","MPL","CPOOL","TRU","GFI","CRED","NAOS","MCB","POLYX",
-    "PAXG","XAUT","DGX","CACHE","MCO2","NCT","KLIMA","BCT","TOUCAN","REGEN",
-    "MOBILE","IOT","KREST","XCN","DFI","SWINGBY","C3","BACKED","SUPERSTATE","BUIDL",
-    "STBT","HARBOR","ARCHBLOCK","ARCA","POLYMATH","SECURITIZE","MAPLE2","GOLDFINCH2","TINLAKE","CENTRIFUGE2",
-    # Privacy
-    "PHALA","PENUMBRA","NAMADA","IRONFISH","GRIN","MWC","DERO","OXEN","HAVEN","CONCEAL",
-    "PARTICL","NAVCOIN","ALEO","ESPRESSO","NOCTURNE","SINDRI","POLYHEDRA","RAILGUN","TORN","AZTEC",
-    # Infrastructure / Web3
-    "FIL","SC","FLUX","BZZ","SWARM","POKT","STRONG","NODL","CERAMIC","CYBERCONNECT",
-    "LIT","RALLY","THETA3","MEDIA","DTUBE","SYLO2","PUSH","XMTP","DISCO","SPRUCE",
-    "SISMO","FARCASTER","LENS","AIRSTACK","LIVEPEER2","OCEAN2","BICO2","ENS2","SPACE2","IEXEC",
-    # Exchange Tokens
-    "OKB","KCS","GT","MX","LEO","HT","CRO","NEXO","CEL","BGB",
-    "WRX","ZT","BTSE","PROBIT","BITGET","BYBIT","MEXC","LATOKEN","COINW","BKEX",
-    # Liquid Staking
-    "WSTETH","CBETH","FRXETH","SFRXETH","SWETH","OSETH","ANKRBNB","STKBNB","BSTKBNB","BNBX",
-    "MATICX","STMATIC","STDOT","LDOT","SDOT","CDOT","PDOT","RDOT","ADOT","VDOT",
-    # Cosmos Ecosystem
-    "JUNO","STARS","COMDEX","UMEE","ACRE","SENTINEL","HARD","USDX","STRIDE","QUICKSILVER",
-    "PERSISTENCE","AGORIC","SOMMELIER","LAVA","NOBLE","DYMENSION","FETCH2","SWING","HARVEST2","REBUS",
-    # Polkadot Ecosystem
-    "ACA","KARURA","BIFROST","INTERLAY","PARALLEL","PHALA2","ZEITGEIST","LITENTRY","DARWINIA","KINTSUGI",
-    "TURING","MANGATA","BASILISK","HEIKO","ALTAIR","SUBSOCIAL","ROBONOMICS","TERNOA","UNIQUE","KILT",
-    # Solana Ecosystem (non-meme)
-    "RAY","ORCA","JUP","JTO","FIDA","MNGO","SERUM","SLND","PORT","SABER",
-    "SUNNY","LARIX","STEP","TULIP","COPE","GRAPE","RATIO","WARP","PYTH","BONFIDA",
-    # إضافي
-    "HMSTR",
+    "TRX","LTC","XLM","HBAR","ALGO","LINK","UNI","AAVE","MKR","CRV",
+    "ARB","OP","MATIC","IMX","INJ","SUI","APT","SEI","TIA","JUP",
+    "FET","RENDER","RNDR","TAO","AKT","IO","AIOZ","STORJ","AR","FIL",
+    "ONDO","POLYX","PAXG","PYTH","GRT","RUNE","PENDLE","ENA","LDO","EIGEN",
 ]
 
-seen: set[str] = set()
-COINS: list[str] = []
-for c in ALL_COINS:
-    if c not in seen:
-        seen.add(c)
-        COINS.append(c)
-COINS = COINS[:500]
-log.info(f"Loaded {len(COINS)} unique coins")
+SYMBOL_MAP = {
+    "RNDR": "RENDER"
+}
 
-ai_client = anthropic.Anthropic(api_key=ANTHROPIC_KEY)
+EXCHANGES = ["binance", "okx", "bybit", "gate", "bitget"]
 
 
-async def send_telegram(text: str) -> None:
+async def send_telegram(text: str):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     async with httpx.AsyncClient() as http:
         r = await http.post(
             url,
             json={"chat_id": CHAT_ID, "text": text, "parse_mode": "HTML"},
-            timeout=15,
+            timeout=20,
         )
         if not r.is_success:
-            log.error(f"Telegram {r.status_code}: {r.text[:200]}")
+            log.error(f"Telegram error {r.status_code}: {r.text[:300]}")
 
 
-async def analyze_batch(batch: list[str]) -> list[dict]:
-    prompt = (
-        f"أنت محلل عملات رقمية خبير ومتحفظ. حلل هذه العملات: {', '.join(batch)}\n\n"
-        "مهمتك: اختر فقط العملات التي تمتلك إشارة شراء استثنائية قوية جداً.\n\n"
-        "معايير الشراء الاستثنائي (يجب توفر 3 منها على الأقل):\n"
-        "- اختراق مستوى مقاومة رئيسي مع حجم تداول مرتفع جداً\n"
-        "- RSI في منطقة تشبع بيعي (أقل من 35) مع بدء الارتداد\n"
-        "- تقاطع المتوسطات المتحركة صعوداً (Golden Cross)\n"
-        "- نمط شمعة انعكاسي قوي عند دعم رئيسي\n"
-        "- زخم قوي مع تدفق مؤسسي واضح\n\n"
-        "التنسيق الحرفي لكل سطر:\n"
-        "SYMBOL|شراء|اذكر المعايير المتوفرة بوضوح في 20 كلمة|عالي جداً أو عالي\n\n"
-        "قواعد صارمة:\n"
-        "- إذا لم تتوفر 3 معايير أو أكثر: اكتب SYMBOL|تخطي||\n"
-        "- من كل 10 عملات توقع أن تجد 1 أو 2 فقط تستحق الشراء في أفضل الأحوال\n"
-        "- كن متشدداً جداً — الإشارة الخاطئة أسوأ من عدم الإشارة\n"
-        "- لا تكتب أي نص إضافي\n"
-        "- مثال جيد: BTC|شراء|اختراق مقاومة 70k مع حجم ضخم و RSI صاعد من 32 وتقاطع ذهبي|عالي جداً\n"
-        "- مثال سيء: ETH|شراء|السوق إيجابي وهناك زخم|عالي  ← هذا غير مقبول"
+def normalize_symbol(symbol: str) -> str:
+    return SYMBOL_MAP.get(symbol, symbol)
+
+
+def tf_binance(tf):
+    return tf
+
+
+def tf_okx(tf):
+    return {
+        "1h": "1H",
+        "4h": "4H",
+        "1d": "1D",
+    }.get(tf, "4H")
+
+
+def tf_bybit(tf):
+    return {
+        "1h": "60",
+        "4h": "240",
+        "1d": "D",
+    }.get(tf, "240")
+
+
+def tf_gate(tf):
+    return {
+        "1h": "1h",
+        "4h": "4h",
+        "1d": "1d",
+    }.get(tf, "4h")
+
+
+def tf_bitget(tf):
+    return {
+        "1h": "1H",
+        "4h": "4H",
+        "1d": "1D",
+    }.get(tf, "4H")
+
+
+async def fetch_binance(symbol):
+    s = normalize_symbol(symbol)
+    pair = f"{s}USDT"
+    url = "https://api.binance.com/api/v3/klines"
+    params = {"symbol": pair, "interval": tf_binance(TIMEFRAME), "limit": LIMIT}
+
+    async with httpx.AsyncClient() as http:
+        r = await http.get(url, params=params, timeout=20)
+
+    if r.status_code != 200:
+        return None
+
+    data = r.json()
+    candles = [
+        {
+            "open": float(k[1]),
+            "high": float(k[2]),
+            "low": float(k[3]),
+            "close": float(k[4]),
+            "volume": float(k[5]),
+        }
+        for k in data
+    ]
+
+    return {"exchange": "Binance", "pair": pair, "candles": candles}
+
+
+async def fetch_okx(symbol):
+    s = normalize_symbol(symbol)
+    pair = f"{s}-USDT"
+    url = "https://www.okx.com/api/v5/market/candles"
+    params = {"instId": pair, "bar": tf_okx(TIMEFRAME), "limit": str(LIMIT)}
+
+    async with httpx.AsyncClient() as http:
+        r = await http.get(url, params=params, timeout=20)
+
+    if r.status_code != 200:
+        return None
+
+    data = r.json().get("data", [])
+    if not data:
+        return None
+
+    data = list(reversed(data))
+
+    candles = [
+        {
+            "open": float(k[1]),
+            "high": float(k[2]),
+            "low": float(k[3]),
+            "close": float(k[4]),
+            "volume": float(k[5]),
+        }
+        for k in data
+    ]
+
+    return {"exchange": "OKX", "pair": pair, "candles": candles}
+
+
+async def fetch_bybit(symbol):
+    s = normalize_symbol(symbol)
+    pair = f"{s}USDT"
+    url = "https://api.bybit.com/v5/market/kline"
+    params = {
+        "category": "spot",
+        "symbol": pair,
+        "interval": tf_bybit(TIMEFRAME),
+        "limit": LIMIT,
+    }
+
+    async with httpx.AsyncClient() as http:
+        r = await http.get(url, params=params, timeout=20)
+
+    if r.status_code != 200:
+        return None
+
+    data = r.json().get("result", {}).get("list", [])
+    if not data:
+        return None
+
+    data = list(reversed(data))
+
+    candles = [
+        {
+            "open": float(k[1]),
+            "high": float(k[2]),
+            "low": float(k[3]),
+            "close": float(k[4]),
+            "volume": float(k[5]),
+        }
+        for k in data
+    ]
+
+    return {"exchange": "Bybit", "pair": pair, "candles": candles}
+
+
+async def fetch_gate(symbol):
+    s = normalize_symbol(symbol)
+    pair = f"{s}_USDT"
+    url = "https://api.gateio.ws/api/v4/spot/candlesticks"
+    params = {"currency_pair": pair, "interval": tf_gate(TIMEFRAME), "limit": LIMIT}
+
+    async with httpx.AsyncClient() as http:
+        r = await http.get(url, params=params, timeout=20)
+
+    if r.status_code != 200:
+        return None
+
+    data = r.json()
+    if not data:
+        return None
+
+    candles = [
+        {
+            "open": float(k[5]),
+            "high": float(k[3]),
+            "low": float(k[4]),
+            "close": float(k[2]),
+            "volume": float(k[1]),
+        }
+        for k in data
+    ]
+
+    return {"exchange": "Gate", "pair": pair, "candles": candles}
+
+
+async def fetch_bitget(symbol):
+    s = normalize_symbol(symbol)
+    pair = f"{s}USDT"
+    url = "https://api.bitget.com/api/v2/spot/market/candles"
+    params = {
+        "symbol": pair,
+        "granularity": tf_bitget(TIMEFRAME),
+        "limit": str(LIMIT),
+    }
+
+    async with httpx.AsyncClient() as http:
+        r = await http.get(url, params=params, timeout=20)
+
+    if r.status_code != 200:
+        return None
+
+    data = r.json().get("data", [])
+    if not data:
+        return None
+
+    data = list(reversed(data))
+
+    candles = [
+        {
+            "open": float(k[1]),
+            "high": float(k[2]),
+            "low": float(k[3]),
+            "close": float(k[4]),
+            "volume": float(k[5]),
+        }
+        for k in data
+    ]
+
+    return {"exchange": "Bitget", "pair": pair, "candles": candles}
+
+
+async def fetch_market_data(symbol):
+    fetchers = [
+        fetch_binance,
+        fetch_okx,
+        fetch_bybit,
+        fetch_gate,
+        fetch_bitget,
+    ]
+
+    results = await asyncio.gather(
+        *[f(symbol) for f in fetchers],
+        return_exceptions=True
     )
-    response = ai_client.messages.create(
-        model=MODEL_NAME,
-        max_tokens=1200,
-        messages=[{"role": "user", "content": prompt}],
-    )
-    results = []
-    for line in response.content[0].text.strip().split("\n"):
-        parts = [p.strip() for p in line.split("|")]
-        if len(parts) >= 4 and parts[0]:
-            results.append({
-                "symbol":     parts[0],
-                "direction":  parts[1],
-                "reason":     parts[2],
-                "confidence": parts[3],
-            })
-    return results
+
+    clean = []
+    for r in results:
+        if isinstance(r, dict) and r.get("candles"):
+            clean.append(r)
+
+    return clean
 
 
-async def run_analysis() -> None:
+def calculate_rsi(closes, period=14):
+    if len(closes) < period + 1:
+        return None
+
+    gains = []
+    losses = []
+
+    for i in range(-period, 0):
+        diff = closes[i] - closes[i - 1]
+        if diff >= 0:
+            gains.append(diff)
+            losses.append(0)
+        else:
+            gains.append(0)
+            losses.append(abs(diff))
+
+    avg_gain = sum(gains) / period
+    avg_loss = sum(losses) / period
+
+    if avg_loss == 0:
+        return 100
+
+    rs = avg_gain / avg_loss
+    return 100 - (100 / (1 + rs))
+
+
+def analyze_exchange(symbol, item):
+    candles = item["candles"]
+
+    if len(candles) < 60:
+        return None
+
+    closes = [c["close"] for c in candles]
+    highs = [c["high"] for c in candles]
+    volumes = [c["volume"] for c in candles]
+
+    current_price = closes[-1]
+    previous_price = closes[-2]
+
+    resistance = max(highs[-51:-1])
+    avg_volume = sum(volumes[-21:-1]) / 20
+    current_volume = volumes[-1]
+
+    if avg_volume <= 0:
+        return None
+
+    volume_ratio = current_volume / avg_volume
+    current_rsi = calculate_rsi(closes)
+
+    breakout_ok = current_price > resistance
+    volume_ok = volume_ratio >= 1.8
+    rsi_ok = current_rsi is not None and 35 <= current_rsi <= 72
+    momentum_ok = current_price > previous_price
+
+    # حماية قوية من المقاومات الوهمية
+    if resistance > current_price * 1.25:
+        return None
+
+    if breakout_ok and volume_ok and rsi_ok and momentum_ok:
+        return {
+            "symbol": symbol,
+            "exchange": item["exchange"],
+            "pair": item["pair"],
+            "price": current_price,
+            "resistance": resistance,
+            "rsi": current_rsi,
+            "volume_ratio": volume_ratio,
+        }
+
+    return None
+
+
+def choose_best_signal(signals):
+    if not signals:
+        return None
+
+    # الأفضلية للإشارة ذات أعلى فوليوم
+    return sorted(signals, key=lambda x: x["volume_ratio"], reverse=True)[0]
+
+
+async def analyze_symbol(symbol):
+    market_data = await fetch_market_data(symbol)
+    signals = []
+
+    for item in market_data:
+        signal = analyze_exchange(symbol, item)
+        if signal:
+            signals.append(signal)
+
+    return choose_best_signal(signals)
+
+
+async def run_analysis():
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
-    log.info(f"Analysis started — {len(COINS)} coins — {now}")
 
     await send_telegram(
         f"🔍 <b>بدأ تحليل {len(COINS)} عملة</b>\n"
+        f"🏦 المنصات: Binance / OKX / Bybit / Gate / Bitget\n"
+        f"⏱ الفريم: <b>{TIMEFRAME}</b>\n"
         f"🕐 {now}\n"
-        f"⭐ فقط توصيات الثقة العالية"
+        f"⭐ فقط الاختراقات المؤكدة ببيانات حقيقية"
     )
 
     sent = 0
-    for i in range(0, len(COINS), BATCH_SIZE):
-        batch = COINS[i : i + BATCH_SIZE]
+
+    for i, symbol in enumerate(COINS, start=1):
         try:
-            results = await analyze_batch(batch)
-            for r in results:
-                # شراء فقط — تخطي أي شيء آخر
-                if "شراء" not in r["direction"]:
-                    continue
-                # ثقة عالية جداً فقط — نرفض "عالي" العادي
-                conf = r["confidence"]
-                if "عالي جداً" not in conf and "عالي جدا" not in conf:
-                    continue
-                # تأكد أن السبب موجود
-                if not r["reason"] or len(r["reason"]) < 5:
-                    continue
+            log.info(f"[{i}/{len(COINS)}] تحليل {symbol}")
+            signal = await analyze_symbol(symbol)
 
-                msg = (
-                    f"🟢 <b>{r['symbol']} — شراء</b>\n"
-                    f"\n"
-                    f"📋 <b>سبب الشراء:</b>\n"
-                    f"➤ {r['reason']}\n"
-                    f"\n"
-                    f"⭐⭐ الثقة: عالية جداً\n"
-                    f"🕐 {datetime.now().strftime('%H:%M')}\n"
-                    f"\n"
-                    f"⚠️ تحليل تعليمي، ليس نصيحة مالية"
-                )
-                await send_telegram(msg)
-                sent += 1
-                await asyncio.sleep(0.4)
+            if not signal:
+                continue
 
-            done = min(i + BATCH_SIZE, len(COINS))
-            log.info(f"{done}/{len(COINS)} — signals: {sent}")
+            msg = (
+                f"🟢 <b>{signal['symbol']} — شراء</b>\n\n"
+                f"🏦 المنصة: <b>{signal['exchange']}</b>\n"
+                f"📊 الزوج: <b>{signal['pair']}</b>\n"
+                f"💵 السعر الحالي: <b>{signal['price']:.4f}</b>\n"
+                f"🧱 المقاومة: <b>{signal['resistance']:.4f}</b>\n"
+                f"📈 RSI: <b>{signal['rsi']:.1f}</b>\n"
+                f"🔥 الفوليوم: <b>{signal['volume_ratio']:.1f}x</b>\n\n"
+                f"📋 <b>سبب الشراء:</b>\n"
+                f"➤ اختراق مقاومة حقيقية مع حجم تداول مرتفع و RSI صاعد.\n\n"
+                f"⭐⭐ الثقة: عالية جداً\n"
+                f"🕐 {datetime.now().strftime('%H:%M')}\n\n"
+                f"⚠️ تحليل تعليمي، ليس نصيحة مالية"
+            )
 
-        except Exception as exc:
-            log.error(f"Batch error: {exc}")
+            await send_telegram(msg)
+            sent += 1
+            await asyncio.sleep(0.5)
 
-        await asyncio.sleep(2)
+        except Exception as e:
+            log.error(f"{symbol} error: {e}")
+
+        await asyncio.sleep(0.2)
 
     await send_telegram(
         f"✅ <b>اكتمل التحليل</b>\n"
         f"📨 أُرسل <b>{sent}</b> توصية من <b>{len(COINS)}</b> عملة\n"
         f"🕐 {datetime.now().strftime('%Y-%m-%d %H:%M')}"
     )
-    log.info(f"Done — {sent} signals sent")
 
 
-async def main() -> None:
-    log.info(f"Bot starting — {len(COINS)} coins")
+async def main():
+    log.info("Bot starting")
+
     await send_telegram(
-        f"🚀 <b>بوت التوصيات يعمل على Railway!</b>\n\n"
-        f"📊 <b>{len(COINS)}</b> عملة مراقبة\n"
+        f"🚀 <b>بوت مراقبة العملات يعمل</b>\n\n"
+        f"📊 عدد العملات: <b>{len(COINS)}</b>\n"
+        f"🏦 المنصات: <b>Binance / OKX / Bybit / Gate / Bitget</b>\n"
+        f"⏱ الفريم: <b>{TIMEFRAME}</b>\n"
         f"🔁 كل <b>{INTERVAL_HOURS}</b> ساعة\n"
-        f"🟢 إشارات الشراء فقط — ثقة عالية\n"
-        f"📋 مع سبب مفصّل لكل إشارة\n"
-        f"🚫 بدون ميم كوين أو ألعاب أو قمار\n\n"
+        f"🟢 إشارات شراء فقط ببيانات سوق حقيقية\n\n"
         f"يبدأ التحليل الآن..."
     )
 
@@ -226,11 +430,8 @@ async def main() -> None:
 
     await run_analysis()
 
-    try:
-        while True:
-            await asyncio.sleep(3600)
-    except (KeyboardInterrupt, SystemExit):
-        scheduler.shutdown()
+    while True:
+        await asyncio.sleep(3600)
 
 
 if __name__ == "__main__":
